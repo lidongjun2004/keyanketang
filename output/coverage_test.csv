@@ -1,0 +1,4 @@
+target,coverage_outside_90pct_actual,coverage_outside_90pct_theory,coverage_outside_80pct_actual,coverage_outside_80pct_theory
+eua_return,0.08148148148148149,0.1,0.17530864197530865,0.2
+msci_energy_return,0.08641975308641975,0.1,0.18024691358024691,0.2
+msci_materials_return,0.1382716049382716,0.1,0.254320987654321,0.2

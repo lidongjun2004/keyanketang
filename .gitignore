@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Editor / Tooling
+.opencode/
+.idea/
+.vscode/
+scratchpad.md
+
+# 论文 / 项目方案 走飞书云文档维护，不进仓
+论文/
+
+# 原始数据集（体积大，单独管理）
+# 仅保留 datastreamm/数据清单.md 作为索引
+datastreamm/*
+!datastreamm/数据清单.md

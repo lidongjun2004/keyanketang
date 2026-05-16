@@ -1,0 +1,17 @@
+period,cause,effect,best_lag,min_p_value,significant_5pct
+全样本 2018-2025,msci_energy_return,eua_return,5,0.0024092275488733386,✓
+全样本 2018-2025,msci_materials_return,eua_return,5,0.006316389719450193,✓
+全样本 2018-2025,eua_return,msci_energy_return,5,0.2838981149813685,✗
+全样本 2018-2025,eua_return,msci_materials_return,2,0.6334855289049186,✗
+样本前期 2018-2020,msci_energy_return,eua_return,5,3.449377998345083e-05,✓
+样本前期 2018-2020,msci_materials_return,eua_return,5,0.0016456044273951403,✓
+样本前期 2018-2020,eua_return,msci_energy_return,5,0.39428955687353096,✗
+样本前期 2018-2020,eua_return,msci_materials_return,1,0.47258158491531627,✗
+样本中期 2021-2022,msci_energy_return,eua_return,1,0.5825813498824352,✗
+样本中期 2021-2022,msci_materials_return,eua_return,3,0.584897414635235,✗
+样本中期 2021-2022,eua_return,msci_energy_return,4,0.06751109837580942,✗
+样本中期 2021-2022,eua_return,msci_materials_return,3,0.1116969051099084,✗
+样本后期 2023-2025,msci_energy_return,eua_return,1,0.007684646955560619,✓
+样本后期 2023-2025,msci_materials_return,eua_return,3,0.0029883874876049437,✓
+样本后期 2023-2025,eua_return,msci_energy_return,4,0.4549140287872656,✗
+样本后期 2023-2025,eua_return,msci_materials_return,1,0.12893253870237384,✗
