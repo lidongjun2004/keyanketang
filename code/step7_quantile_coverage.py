@@ -20,7 +20,7 @@ OUTPUT_ROOT = Path("/Users/minimax/workplace/personal/college/curriculum/junior/
 FIGS_ROOT = OUTPUT_ROOT / "figs"
 
 LAG_LIST = [1, 2, 3, 5]
-EXPECTILE_LEVELS = [0.05, 0.10, 0.50, 0.90, 0.95]
+EXPECTILE_LEVELS = [0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95]
 TRAIN_RATIO = 0.8
 RETURN_COLUMNS = ["eua_return", "msci_energy_return", "msci_materials_return"]
 
@@ -34,18 +34,21 @@ TARGET_LABEL = {
 def plot_quantile_coverage_one_target(target_column, dates_test, predictions_by_tau, targets_test, output_filename):
     figure, axis = plt.subplots(figsize=(15, 6))
     axis.plot(dates_test, targets_test, color="black", linewidth=0.6, alpha=0.7, label="实际收益率")
-    colors_lower = {0.05: "#d62728", 0.10: "#ff9896"}
-    colors_upper = {0.90: "#aec7e8", 0.95: "#1f77b4"}
     axis.fill_between(dates_test, predictions_by_tau[0.05], predictions_by_tau[0.95],
-                      color="#1f77b4", alpha=0.15, label="ERNN 预测 90% 区间 (τ=0.05~0.95)")
+                      color="#1f77b4", alpha=0.12, label="ERNN 预测 90% 区间 (τ=0.05~0.95)")
     axis.fill_between(dates_test, predictions_by_tau[0.10], predictions_by_tau[0.90],
-                      color="#1f77b4", alpha=0.25, label="ERNN 预测 80% 区间 (τ=0.10~0.90)")
+                      color="#1f77b4", alpha=0.20, label="ERNN 预测 80% 区间 (τ=0.10~0.90)")
+    axis.fill_between(dates_test, predictions_by_tau[0.25], predictions_by_tau[0.75],
+                      color="#1f77b4", alpha=0.30, label="ERNN 预测 50% 区间 (τ=0.25~0.75)")
     axis.plot(dates_test, predictions_by_tau[0.50], color="#d62728", linewidth=1.0, label="ERNN 预测中位数")
 
     coverage_outside_5_95 = ((targets_test < predictions_by_tau[0.05]) | (targets_test > predictions_by_tau[0.95])).mean()
     coverage_outside_10_90 = ((targets_test < predictions_by_tau[0.10]) | (targets_test > predictions_by_tau[0.90])).mean()
+    coverage_outside_25_75 = ((targets_test < predictions_by_tau[0.25]) | (targets_test > predictions_by_tau[0.75])).mean()
     axis.set_title(f"{TARGET_LABEL[target_column]} ERNN 分位预测覆盖 (test set)\n"
-                   f"实际越界比例: 90% 区间={coverage_outside_5_95 * 100:.1f}% (理论 10%) | 80% 区间={coverage_outside_10_90 * 100:.1f}% (理论 20%)",
+                   f"实际越界比例: 90% 区间={coverage_outside_5_95 * 100:.1f}% (理论 10%) | "
+                   f"80% 区间={coverage_outside_10_90 * 100:.1f}% (理论 20%) | "
+                   f"50% 区间={coverage_outside_25_75 * 100:.1f}% (理论 50%)",
                    fontsize=11)
     axis.set_xlabel("日期")
     axis.set_ylabel("日度对数收益率")
@@ -57,8 +60,8 @@ def plot_quantile_coverage_one_target(target_column, dates_test, predictions_by_
     output_path = FIGS_ROOT / output_filename
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
-    print(f">>> saved {output_path} | coverage 90={coverage_outside_5_95 * 100:.1f}% 80={coverage_outside_10_90 * 100:.1f}%")
-    return coverage_outside_5_95, coverage_outside_10_90
+    print(f">>> saved {output_path} | coverage 90={coverage_outside_5_95 * 100:.1f}% 80={coverage_outside_10_90 * 100:.1f}% 50={coverage_outside_25_75 * 100:.1f}%")
+    return coverage_outside_5_95, coverage_outside_10_90, coverage_outside_25_75
 
 
 def main():
@@ -67,7 +70,7 @@ def main():
 
     coverage_records = []
     for target_column in RETURN_COLUMNS:
-        print(f"\n>>> training ERNN at 5 taus for target={target_column}")
+        print(f"\n>>> training ERNN at 7 taus for target={target_column}")
         combined = build_lagged_features(data, target_column, LAG_LIST)
         date_series = data["date"].iloc[len(data) - len(combined):].reset_index(drop=True)
         feature_columns = [col for col in combined.columns if col != "target"]
@@ -90,7 +93,7 @@ def main():
         if sorted_taus != EXPECTILE_LEVELS:
             print(f"    [WARN] monotonicity violated, sorted taus: {sorted_taus}")
 
-        cov_90, cov_80 = plot_quantile_coverage_one_target(
+        cov_90, cov_80, cov_50 = plot_quantile_coverage_one_target(
             target_column, dates_test, predictions_by_tau, targets_test,
             output_filename=f"fig_5_5_coverage_{target_column}.png",
         )
@@ -100,6 +103,8 @@ def main():
             "coverage_outside_90pct_theory": 0.10,
             "coverage_outside_80pct_actual": cov_80,
             "coverage_outside_80pct_theory": 0.20,
+            "coverage_outside_50pct_actual": cov_50,
+            "coverage_outside_50pct_theory": 0.50,
         })
 
     coverage_frame = pandas.DataFrame(coverage_records)

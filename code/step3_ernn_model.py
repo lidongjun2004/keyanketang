@@ -110,6 +110,25 @@ def expectile_loss_numpy(predictions, targets, expectile_level):
     return numpy.mean(weights * residuals ** 2)
 
 
+def unconditional_expectile(targets, expectile_level, iterations=200, tolerance=1e-12):
+    """求样本无条件 τ-expectile：最小化非对称平方损失的常数预测。
+
+    与无条件分位数 numpy.quantile(.) 对偶，用于构造 Expectile R² 的 baseline。
+    采用 Newey & Powell (1987) 的不动点迭代：mu = sum(w*y)/sum(w)，
+    w = tau if y>=mu else (1-tau)。该迭代单调收敛。
+    """
+    targets = numpy.asarray(targets, dtype=numpy.float64)
+    mu = targets.mean()
+    for _ in range(iterations):
+        weights = numpy.where(targets >= mu, expectile_level, 1.0 - expectile_level)
+        new_mu = numpy.sum(weights * targets) / numpy.sum(weights)
+        if abs(new_mu - mu) < tolerance:
+            mu = new_mu
+            break
+        mu = new_mu
+    return float(mu)
+
+
 def quick_smoke_test():
     print(">>> ERNN smoke test on synthetic data")
     rng = numpy.random.default_rng(RANDOM_SEED)

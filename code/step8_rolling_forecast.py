@@ -19,7 +19,7 @@ from step5_main_experiment import build_lagged_features, standardize, run_one_mo
 OUTPUT_ROOT = Path("/Users/minimax/workplace/personal/college/curriculum/junior/科研课堂/output")
 
 LAG_LIST = [1, 2, 3, 5]
-EXPECTILE_LEVELS = [0.05, 0.10, 0.50, 0.90, 0.95]
+EXPECTILE_LEVELS = [0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95]
 RETURN_COLUMNS = ["eua_return", "msci_energy_return", "msci_materials_return"]
 MODEL_NAMES = ["L-ER", "ERNN"]
 
@@ -72,7 +72,9 @@ def rolling_forecast_one_target(data, target_column):
                     pred = predict_ernn(payload, feature_today)[0]
                 elif kind == "ler":
                     pred = predict_linear_expectile_regression(payload, feature_today)[0]
-                pinball = max(expectile_level * (target_today - pred), (expectile_level - 1) * (target_today - pred))
+                residual = target_today - pred
+                pinball = max(expectile_level * residual, (expectile_level - 1) * residual)
+                expectile = (expectile_level if residual >= 0 else 1.0 - expectile_level) * residual ** 2
                 rolling_records.append({
                     "target": target_column,
                     "index": current_index,
@@ -81,6 +83,7 @@ def rolling_forecast_one_target(data, target_column):
                     "prediction": float(pred),
                     "actual": float(target_today),
                     "pinball": float(pinball),
+                    "expectile": float(expectile),
                 })
 
         if (current_index - test_start) % 200 == 0:
@@ -104,12 +107,19 @@ def main():
     print(f"\n>>> total time: {elapsed:.1f}s, saved rolling_forecast.csv ({len(rolling_frame)} rows)")
 
     print("\n" + "=" * 80)
-    print("ROLLING FORECAST SUMMARY: average pinball loss per (target, tau, model)")
+    print("ROLLING FORECAST SUMMARY: average loss per (target, tau, model), 双损失口径")
     print("=" * 80)
-    summary = rolling_frame.groupby(["target", "tau", "model"])["pinball"].mean().reset_index()
-    summary = summary.pivot_table(index=["target", "tau"], columns="model", values="pinball")
-    summary["ERNN_better_than_LER_by"] = summary["L-ER"] - summary["ERNN"]
-    summary["ERNN_relative_improvement"] = summary["ERNN_better_than_LER_by"] / summary["L-ER"] * 100
+    pinball_pivot = rolling_frame.groupby(["target", "tau", "model"])["pinball"].mean().reset_index()
+    pinball_pivot = pinball_pivot.pivot_table(index=["target", "tau"], columns="model", values="pinball")
+    pinball_pivot["pinball_ERNN_minus_LER"] = pinball_pivot["ERNN"] - pinball_pivot["L-ER"]
+    pinball_pivot["pinball_ERNN_rel_improve_pct"] = (pinball_pivot["L-ER"] - pinball_pivot["ERNN"]) / pinball_pivot["L-ER"] * 100
+
+    expectile_pivot = rolling_frame.groupby(["target", "tau", "model"])["expectile"].mean().reset_index()
+    expectile_pivot = expectile_pivot.pivot_table(index=["target", "tau"], columns="model", values="expectile")
+    expectile_pivot["expectile_ERNN_rel_improve_pct"] = (expectile_pivot["L-ER"] - expectile_pivot["ERNN"]) / expectile_pivot["L-ER"] * 100
+
+    summary = pinball_pivot.copy()
+    summary["expectile_ERNN_rel_improve_pct"] = expectile_pivot["expectile_ERNN_rel_improve_pct"]
     print(summary.to_string(float_format=lambda v: f"{v:.6f}"))
     summary.reset_index().to_csv(OUTPUT_ROOT / "rolling_forecast_summary.csv", index=False)
     print(f"\n>>> saved rolling_forecast_summary.csv")

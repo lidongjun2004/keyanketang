@@ -8,7 +8,7 @@ warnings.filterwarnings("ignore")
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
 from step3_ernn_model import (
-    fit_ernn, predict_ernn, expectile_loss_numpy, quantile_loss,
+    fit_ernn, predict_ernn, expectile_loss_numpy, quantile_loss, unconditional_expectile,
 )
 from step4_baselines import (
     fit_linear_expectile_regression, predict_linear_expectile_regression,
@@ -20,7 +20,7 @@ from step4_baselines import (
 OUTPUT_ROOT = Path("/Users/minimax/workplace/personal/college/curriculum/junior/科研课堂/output")
 
 LAG_LIST = [1, 2, 3, 5]
-EXPECTILE_LEVELS = [0.05, 0.1, 0.5, 0.9, 0.95]
+EXPECTILE_LEVELS = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
 TRAIN_RATIO = 0.8
 RETURN_COLUMNS = ["eua_return", "msci_energy_return", "msci_materials_return"]
 
@@ -87,6 +87,29 @@ def quantile_r_squared(predictions, targets, expectile_level, train_targets):
     return 1.0 - model_loss / baseline_loss
 
 
+def expectile_r_squared(predictions, targets, expectile_level, train_targets):
+    """基于非对称平方损失的 R²，对偶于 quantile_r_squared。
+
+    baseline 为训练集无条件 τ-expectile。这是 ERNN 的"原生"拟合优度指标——
+    ERNN 训练时最小化的正是非对称平方损失，故用同一损失评价才符合模型逻辑。
+    """
+    unconditional = unconditional_expectile(train_targets, expectile_level)
+    model_loss = expectile_loss_numpy(predictions, targets, expectile_level)
+    baseline_loss = expectile_loss_numpy(numpy.full_like(targets, unconditional), targets, expectile_level)
+    return 1.0 - model_loss / baseline_loss
+
+
+def pinball_per_observation(predictions, targets, expectile_level):
+    residuals = targets - predictions
+    return numpy.maximum(expectile_level * residuals, (expectile_level - 1) * residuals)
+
+
+def expectile_per_observation(predictions, targets, expectile_level):
+    residuals = targets - predictions
+    weights = numpy.where(residuals < 0, 1.0 - expectile_level, expectile_level)
+    return weights * residuals ** 2
+
+
 def main():
     data = pandas.read_csv(OUTPUT_ROOT / "master_data.csv", parse_dates=["date"])
     print(f">>> loaded master_data: {data.shape}")
@@ -100,7 +123,6 @@ def main():
 
     all_results = []
     dm_records = []
-    pinball_records = {}
 
     for target_column, direction_label in directions:
         print(f"\n{'=' * 80}")
@@ -120,8 +142,8 @@ def main():
 
         for expectile_level in EXPECTILE_LEVELS:
             print(f"\n    --- tau = {expectile_level} ---")
-            tau_results = {}
-            tau_pinball = {}
+            tau_pinball_obs = {}
+            tau_expectile_obs = {}
             for model_name in model_names:
                 start = time.time()
                 predictions = run_one_model(model_name, features_train, targets_train, features_test, targets_test, expectile_level)
@@ -129,9 +151,11 @@ def main():
                 pinball = quantile_loss(predictions, targets_test, expectile_level)
                 expectile = expectile_loss_numpy(predictions, targets_test, expectile_level)
                 qr2 = quantile_r_squared(predictions, targets_test, expectile_level, targets_train)
-                pinball_per_obs = numpy.maximum(expectile_level * (targets_test - predictions), (expectile_level - 1) * (targets_test - predictions))
-                tau_pinball[model_name] = pinball_per_obs
-                tau_results[model_name] = {"pred_mean": predictions.mean(), "pinball": pinball, "expectile": expectile, "QR2": qr2, "elapsed_s": elapsed}
+                er2 = expectile_r_squared(predictions, targets_test, expectile_level, targets_train)
+                rmse = float(numpy.sqrt(numpy.mean((targets_test - predictions) ** 2)))
+                mae = float(numpy.mean(numpy.abs(targets_test - predictions)))
+                tau_pinball_obs[model_name] = pinball_per_observation(predictions, targets_test, expectile_level)
+                tau_expectile_obs[model_name] = expectile_per_observation(predictions, targets_test, expectile_level)
                 all_results.append({
                     "direction": direction_label,
                     "target": target_column,
@@ -141,22 +165,27 @@ def main():
                     "pinball_loss": pinball,
                     "expectile_loss": expectile,
                     "quantile_r_squared": qr2,
+                    "expectile_r_squared": er2,
+                    "rmse": rmse,
+                    "mae": mae,
                     "elapsed_seconds": elapsed,
                 })
-                print(f"      {model_name:6s} | pinball={pinball:.5f} | expect={expectile:.6f} | QR2={qr2:+.4f} | t={elapsed:.1f}s | pred_mean={predictions.mean():+.4f}")
+                print(f"      {model_name:6s} | pinball={pinball:.5f} | expect={expectile:.6f} | QR2={qr2:+.4f} | ER2={er2:+.4f} | RMSE={rmse:.4f} | t={elapsed:.1f}s")
 
             for benchmark in ["L-ER", "QRNN", "QRF", "Q-GBM"]:
-                dm_stat, p_value = diebold_mariano_test(tau_pinball[benchmark], tau_pinball["ERNN"])
-                dm_records.append({
-                    "direction": direction_label,
-                    "target": target_column,
-                    "tau": expectile_level,
-                    "benchmark": benchmark,
-                    "competitor": "ERNN",
-                    "DM_stat": dm_stat,
-                    "p_value": p_value,
-                    "ernn_better": (dm_stat > 0) and (p_value < 0.1),
-                })
+                for loss_metric, obs_dict in (("pinball", tau_pinball_obs), ("expectile", tau_expectile_obs)):
+                    dm_stat, p_value = diebold_mariano_test(obs_dict[benchmark], obs_dict["ERNN"])
+                    dm_records.append({
+                        "direction": direction_label,
+                        "target": target_column,
+                        "tau": expectile_level,
+                        "benchmark": benchmark,
+                        "competitor": "ERNN",
+                        "loss_metric": loss_metric,
+                        "DM_stat": dm_stat,
+                        "p_value": p_value,
+                        "ernn_better": (dm_stat > 0) and (p_value < 0.1),
+                    })
 
     result_frame = pandas.DataFrame(all_results)
     dm_frame = pandas.DataFrame(dm_records)
@@ -165,15 +194,25 @@ def main():
     print(f"\n>>> saved main_results.csv and dm_test.csv")
 
     print(f"\n{'=' * 80}")
-    print("SUMMARY: best model per (direction, tau) by pinball loss")
+    print("SUMMARY: best model per (direction, tau) by PINBALL loss (分位数损失主场)")
     print('=' * 80)
-    summary = result_frame.loc[result_frame.groupby(["direction", "tau"])["pinball_loss"].idxmin()]
-    print(summary[["direction", "tau", "model", "pinball_loss", "quantile_r_squared"]].to_string(index=False))
+    summary_pinball = result_frame.loc[result_frame.groupby(["direction", "tau"])["pinball_loss"].idxmin()]
+    print(summary_pinball[["direction", "tau", "model", "pinball_loss", "quantile_r_squared"]].to_string(index=False))
 
     print(f"\n{'=' * 80}")
-    print("DM TEST: ERNN vs each baseline (positive DM = ERNN better)")
+    print("SUMMARY: best model per (direction, tau) by EXPECTILE loss (符合 ERNN 模型逻辑)")
     print('=' * 80)
-    print(dm_frame.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    summary_expectile = result_frame.loc[result_frame.groupby(["direction", "tau"])["expectile_loss"].idxmin()]
+    print(summary_expectile[["direction", "tau", "model", "expectile_loss", "expectile_r_squared"]].to_string(index=False))
+
+    print(f"\n{'=' * 80}")
+    print("DM TEST: ERNN vs each baseline (positive DM = ERNN better), 两种损失口径")
+    print('=' * 80)
+    for loss_metric in ["pinball", "expectile"]:
+        subset = dm_frame[dm_frame["loss_metric"] == loss_metric]
+        win_count = subset.groupby("benchmark")["ernn_better"].sum().to_dict()
+        n_cells = subset.groupby("benchmark").size().max()
+        print(f"  [{loss_metric:9s}] ERNN 显著胜出计数: {win_count} (各 / {n_cells})")
 
 
 if __name__ == "__main__":

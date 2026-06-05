@@ -25,11 +25,11 @@ def main():
     labels = []
     colors = []
     for target in ["eua_return", "msci_energy_return", "msci_materials_return"]:
-        for tau in [0.05, 0.10, 0.50, 0.90, 0.95]:
+        for tau in [0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95]:
             row = summary[(summary["target"] == target) & (summary["tau"] == tau)]
             if len(row) == 0:
                 continue
-            improvement = row["ERNN_relative_improvement"].iloc[0]
+            improvement = row["pinball_ERNN_rel_improve_pct"].iloc[0]
             bar_data.append(improvement)
             labels.append(f"{TARGET_LABEL[target][:6]}\nτ={tau}")
             colors.append("#2ca02c" if improvement > 0 else "#d62728")

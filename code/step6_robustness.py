@@ -14,12 +14,12 @@ from step4_baselines import (
     fit_qrf, predict_qrf,
     fit_qgbm, predict_qgbm,
 )
-from step5_main_experiment import diebold_mariano_test, build_lagged_features, standardize, run_one_model, quantile_r_squared
+from step5_main_experiment import diebold_mariano_test, build_lagged_features, standardize, run_one_model, quantile_r_squared, expectile_r_squared
 
 OUTPUT_ROOT = Path("/Users/minimax/workplace/personal/college/curriculum/junior/科研课堂/output")
 
 LAG_LIST = [1, 2, 3, 5]
-EXPECTILE_LEVELS = [0.05, 0.1, 0.5, 0.9, 0.95]
+EXPECTILE_LEVELS = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
 TRAIN_RATIO = 0.8
 RETURN_COLUMNS = ["eua_return", "msci_energy_return", "msci_materials_return"]
 CONTROL_DIFF_COLUMNS = ["china_10y_diff", "eu_pmi_diff", "eu_ip_diff"]
@@ -34,6 +34,7 @@ def evaluate_one_split(features_train, targets_train, features_test, targets_tes
         pinball = quantile_loss(predictions, targets_test, expectile_level)
         expectile = expectile_loss_numpy(predictions, targets_test, expectile_level)
         qr2 = quantile_r_squared(predictions, targets_test, expectile_level, targets_train)
+        er2 = expectile_r_squared(predictions, targets_test, expectile_level, targets_train)
         pinball_per_obs = numpy.maximum(expectile_level * (targets_test - predictions), (expectile_level - 1) * (targets_test - predictions))
         pinballs[model_name] = pinball_per_obs
         rows.append({
@@ -42,6 +43,7 @@ def evaluate_one_split(features_train, targets_train, features_test, targets_tes
             "pinball_loss": pinball,
             "expectile_loss": expectile,
             "quantile_r_squared": qr2,
+            "expectile_r_squared": er2,
         })
     return rows, pinballs
 
@@ -76,12 +78,14 @@ def robustness_b_hidden_dim(data):
                 predictions = predict_ernn(model, features_test)
                 pinball = quantile_loss(predictions, targets_test, expectile_level)
                 qr2 = quantile_r_squared(predictions, targets_test, expectile_level, targets_train)
+                er2 = expectile_r_squared(predictions, targets_test, expectile_level, targets_train)
                 rows.append({
                     "target": target_column,
                     "hidden_dim": hidden_dim,
                     "tau": expectile_level,
                     "pinball_loss": pinball,
                     "quantile_r_squared": qr2,
+                    "expectile_r_squared": er2,
                 })
                 print(f"    target={target_column[:20]:20s} | J={hidden_dim:2d} | tau={expectile_level} | pinball={pinball:.6f} | QR2={qr2:+.4f}")
     return pandas.DataFrame(rows)
@@ -210,11 +214,11 @@ def main():
 
     print("\n[A vs main] DM check: how often does ERNN still beat each baseline when COVID excluded?")
     win_count_a = dm_a.groupby("benchmark")["ernn_better"].sum().to_dict()
-    print(f"    {win_count_a} (out of 15 = 3 targets × 5 taus per benchmark)")
+    print(f"    {win_count_a} (out of 21 = 3 targets × 7 taus per benchmark)")
 
     print("\n[C vs main] DM check: how often does ERNN beat each baseline with macro controls?")
     win_count_c = dm_c.groupby("benchmark")["ernn_better"].sum().to_dict()
-    print(f"    {win_count_c} (out of 15)")
+    print(f"    {win_count_c} (out of 21)")
 
 
 if __name__ == "__main__":
